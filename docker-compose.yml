@@ -18,12 +18,19 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_INTERNAL://localhost:29092
+      # Configure listeners for internal Docker communication
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092 
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # Give Kafka time to start before checking
     networks:
       - app-network
 
@@ -47,9 +54,12 @@ services:
       context: ./packages/backend
       dockerfile: Dockerfile
     depends_on:
-      - kafka
-      - mongodb
-      - redis
+      kafka: # Wait for Kafka to be healthy
+        condition: service_healthy
+      mongodb:
+        condition: service_started 
+      redis:
+        condition: service_started
     environment:
       # --- Application Config ---
       NODE_ENV: development
