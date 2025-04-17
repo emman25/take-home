@@ -22,6 +22,8 @@ export class Job extends Document {
   @Prop({ required: true, enum: JobStatus, default: JobStatus.VALIDATING })
   status: JobStatus;
 
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const JobSchema = SchemaFactory.createForClass(Job);

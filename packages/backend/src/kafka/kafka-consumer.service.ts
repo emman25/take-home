@@ -73,9 +73,18 @@ export class KafkaConsumerService implements OnModuleInit {
       }
 
 
-      const updatePayload: JobUpdatedPayload = new JobResponseDto(updatedJob);
+      const updatePayloadObject = {
+        jobId: updatedJob.jobId,
+        inputString: updatedJob.inputString,
+        regexPattern: updatedJob.regexPattern,
+        status: updatedJob.status,
+        createdAt: updatedJob.createdAt.toISOString(),
+        updatedAt: updatedJob.updatedAt.toISOString(),
+      };
+
       await firstValueFrom(
-        this.kafkaClient.emit(this.jobUpdateTopic, updatePayload),
+        
+        this.kafkaClient.emit(this.jobUpdateTopic, updatePayloadObject),
       );
       this.logger.log(`Job ${jobId}: Status update (${finalStatus}) sent to Kafka topic ${this.jobUpdateTopic}`);
 
