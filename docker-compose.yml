@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - app-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_INTERNAL://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - app-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+  redis:
+    image: redis:latest
+    container_name: redis_take_home
+    networks:
+      - app-network
+
+  backend:
+    container_name: backend
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+      - mongodb
+      - redis
+    environment:
+      # --- Application Config ---
+      NODE_ENV: development
+      PORT: 3000 
+      REGEX_PATTERN: '^[a-zA-Z0-9\s]+$' 
+      VALIDATION_DELAY_MS: 5000
+      # --- Kafka Config ---
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: 'regex-validator-backend'
+      KAFKA_GROUP_ID: 'regex-validator-group'
+      KAFKA_JOB_SUBMIT_TOPIC: 'job.submitted'
+      KAFKA_JOB_UPDATE_TOPIC: 'job.updated'
+      # --- MongoDB Config ---
+      MONGODB_URI: mongodb://mongodb:27017/regexValidator
+      # --- Redis Config ---
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_JOB_CHANNEL: 'job-updates'
+    networks:
+      - app-network
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ./packages/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "61234:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
