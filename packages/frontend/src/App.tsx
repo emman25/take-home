@@ -49,7 +49,15 @@ function App() {
       const response = await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
       console.log('Job submitted successfully:', response.data);
 
+      const newJobOptimistic: Job = {
+        ...response.data,
+        createdAt: new Date(response.data.createdAt).toISOString(),
+        updatedAt: new Date(response.data.updatedAt).toISOString(),
+      };
 
+      setJobs(prevJobs => [newJobOptimistic, ...prevJobs].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ));
 
       setInputString('');
     } catch (err) {
@@ -67,18 +75,18 @@ function App() {
 
     console.log('Attempting to connect WebSocket...');
     const newSocket = io(WEBSOCKET_URL, {
-
+      transports: ['websocket']
     });
     socketRef.current = newSocket;
 
     newSocket.on('connect', () => {
       console.log('WebSocket connected:', newSocket.id);
+      setError(null); 
     });
 
 
     newSocket.on('disconnect', (reason: string) => {
       console.log('WebSocket disconnected:', reason);
-
     });
 
     newSocket.on('connect_error', (err: Error) => {
@@ -89,17 +97,26 @@ function App() {
 
     newSocket.on('jobUpdate', (updatedJob: Job) => {
       console.log('Received jobUpdate event:', updatedJob);
-      setJobs(prevJobs => {
-        const existingJobIndex = prevJobs.findIndex(job => job.jobId === updatedJob.jobId);
-        if (existingJobIndex !== -1) {
+      setJobs(currentJobs => {
+        console.log('Received jobUpdate event:', updatedJob.jobId);
 
-          const newJobs = [...prevJobs];
-          newJobs[existingJobIndex] = updatedJob;
-          return newJobs;
+
+        const finalUpdatedJob: Job = {
+            ...updatedJob,
+            createdAt: new Date(updatedJob.createdAt).toISOString(),
+            updatedAt: new Date(updatedJob.updatedAt).toISOString(),
+        };
+
+        const index = currentJobs.findIndex(job => job.jobId === finalUpdatedJob.jobId);
+
+        if (index !== -1) {
+          console.log(`Updating existing job ${finalUpdatedJob.jobId} in state.`);
+          return currentJobs.map(job =>
+            job.jobId === finalUpdatedJob.jobId ? finalUpdatedJob : job
+          );
         } else {
-
-
-          return [updatedJob, ...prevJobs].sort((a, b) =>
+          console.log(`Adding new job ${finalUpdatedJob.jobId} from WebSocket to state.`);
+          return [finalUpdatedJob, ...currentJobs].sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
         }
@@ -108,8 +125,16 @@ function App() {
 
 
     return () => {
-      console.log('Disconnecting WebSocket...');
-      socketRef.current?.disconnect();
+      const socket = socketRef.current;
+      if (socket) {
+        console.log('Cleaning up WebSocket connection:', socket.id);
+        
+        socket.off('connect');
+        socket.off('disconnect');
+        socket.off('connect_error');
+        socket.off('jobUpdate');
+        socket.disconnect();
+      }
       socketRef.current = null;
     };
   }, [fetchJobs]);
@@ -159,8 +184,9 @@ function App() {
                 <td>{job.inputString}</td>
                 <td>{job.regexPattern}</td>
                 <td className={`status-${job.status.toLowerCase()}`}>{job.status}</td>
-                <td>{new Date(job.createdAt).toLocaleString()}</td>
-                <td>{new Date(job.updatedAt).toLocaleString()}</td>
+                {/* Add check for valid date before formatting */}
+                <td>{job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}</td>
+                <td>{job.updatedAt ? new Date(job.updatedAt).toLocaleString() : 'N/A'}</td>
               </tr>
             ))}
           </tbody>

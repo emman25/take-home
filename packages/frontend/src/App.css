@@ -73,7 +73,7 @@ button:disabled {
 }
 
 .error {
-  color: #ff6b6b;
+  color: #f44336; /* Updated Red for better contrast */
   margin-top: -1em;
   margin-bottom: 1em;
 }
@@ -90,19 +90,21 @@ th, td {
   border: 1px solid #444;
   padding: 0.5em 0.8em;
   text-align: left;
+  color: rgba(255, 255, 255, 0.87); /* Explicit light text for dark mode cells */
 }
 
 th {
   background-color: #333;
   font-weight: bold;
+  color: rgba(255, 255, 255, 0.95); /* Brighter header text */
 }
 
 tbody tr:nth-child(odd) {
-  background-color: #2a2a2a;
+  background-color: #303030; /* Darker odd rows */
 }
 
 tbody tr:hover {
-  background-color: #383838;
+  background-color: #404040; /* Adjusted hover */
 }
 
 
@@ -111,11 +113,11 @@ tbody tr:hover {
   font-style: italic;
 }
 .status-valid {
-  color: #90ee90;
+  color: #4CAF50; /* Updated Green for better contrast */
   font-weight: bold;
 }
 .status-invalid {
-  color: #ff7f7f;
+  color: #f44336; /* Updated Red for better contrast */
   font-weight: bold;
 }
 
@@ -139,9 +141,11 @@ tbody tr:hover {
   }
   th, td {
     border: 1px solid #ddd;
+    color: #213547; /* Explicit dark text for light mode cells */
   }
   th {
     background-color: #eee;
+    color: #111; /* Darker header text */
   }
   tbody tr:nth-child(odd) {
     background-color: #f9f9f9;
@@ -149,7 +153,7 @@ tbody tr:hover {
   tbody tr:hover {
     background-color: #f1f1f1;
   }
-  .status-validating { color: #555; }
-  .status-valid { color: #28a745; }
-  .status-invalid { color: #dc3545; }
+  .status-validating { color: #555; font-style: italic; } /* Keep italic for light mode too */
+  .status-valid { color: #1e7e34; font-weight: bold; } /* Darker green */
+  .status-invalid { color: #c82333; font-weight: bold; } /* Darker red */
 }
