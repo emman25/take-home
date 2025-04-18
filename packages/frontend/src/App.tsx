@@ -1,76 +1,27 @@
-import React, { useState, useEffect, useCallback } from 'react'; // Removed useRef
-import axios from 'axios';
-
-
+import React, { useEffect } from 'react';
+import { useAppStore } from './store'; 
 import { Job } from './types';
 import './App.css';
 
-
-const API_BASE_URL = '/api';
-
-const SSE_URL = '/api/sse/events'; 
+const SSE_URL = '/api/sse/events';
 
 function App() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [inputString, setInputString] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    jobs,
+    inputString,
+    isLoading,
+    error,
+    setInputString,
+    fetchJobs,
+    submitJob,
+    _handleSseJobUpdate
+  } = useAppStore();
 
 
-
-  const fetchJobs = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      console.log('Fetching initial jobs...');
-      const response = await axios.get<Job[]>(`${API_BASE_URL}/jobs`);
-      console.log('Jobs fetched:', response.data);
-      setJobs(response.data || []);
-    } catch (err) {
-      console.error('Error fetching jobs:', err);
-      setError('Failed to fetch job history.');
-      setJobs([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!inputString.trim()) {
-      setError('Input string cannot be empty.');
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      console.log('Submitting job with input:', inputString);
-     
-      const response = await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
-      console.log('Job submitted successfully via POST:', response.data);
-
-    
-      const newJobOptimistic: Job = {
-        ...response.data,
-
-        createdAt: new Date(response.data.createdAt).toISOString(),
-        updatedAt: new Date(response.data.updatedAt).toISOString(),
-      };
-      setJobs(prevJobs => [newJobOptimistic, ...prevJobs].sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ));
-
-      setInputString('');
-    } catch (err) {
-      console.error('Error submitting job:', err);
-      setError('Failed to submit job.');
-    } finally {
-      setIsLoading(false);
-    }
+    submitJob(); 
   };
-
-
 
   useEffect(() => {
     fetchJobs();
@@ -80,47 +31,30 @@ function App() {
 
     eventSource.onopen = () => {
       console.log('SSE connection established.');
-      setError(null); 
     };
 
     eventSource.onerror = (err) => {
       console.error('SSE connection error:', err);
-      setError('Connection error with real-time updates.');
-
       eventSource.close();
     };
 
-    
     eventSource.addEventListener('jobUpdate', (event) => {
       console.log('Raw jobUpdate event received via SSE:', event.data);
       try {
         const updatedJob: Job = JSON.parse(event.data);
-
-        setJobs(currentJobs => {
-          const index = currentJobs.findIndex(job => job.jobId === updatedJob.jobId);
-          if (index !== -1) {
-            // Update existing job
-            return currentJobs.map(job =>
-              job.jobId === updatedJob.jobId ? updatedJob : job
-            );
-          } else {
-            // Add new job and sort
-            return [updatedJob, ...currentJobs].sort((a, b) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-          }
-        });
+        
+        _handleSseJobUpdate(updatedJob);
       } catch (parseError) {
         console.error('Failed to parse SSE jobUpdate data:', parseError);
       }
     });
 
-    
+  
     return () => {
       console.log('Closing SSE connection...');
       eventSource.close();
     };
-  }, [fetchJobs]); // Depend on fetchJobs
+  }, [fetchJobs, _handleSseJobUpdate]);
 
 
   return (
@@ -128,7 +62,7 @@ function App() {
       <h1>Real-Time Regex Validator</h1>
 
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleFormSubmit}>
         <input
           type="text"
           value={inputString}
@@ -142,7 +76,6 @@ function App() {
       </form>
 
       {error && <p className="error">Error: {error}</p>}
-
 
       <h2>Job History</h2>
       {isLoading && jobs.length === 0 && <p>Loading job history...</p>}
