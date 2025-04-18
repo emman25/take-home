@@ -73,73 +73,82 @@ function App() {
     fetchJobs();
 
 
-    console.log('Attempting to connect WebSocket...');
-    const newSocket = io(WEBSOCKET_URL, {
-      transports: ['websocket']
+    console.log('Attempting to connect WebSocket...${}');
+    console.log(WEBSOCKET_URL)
+    const newSocket = io({
+      path: '/socket.io/',
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
     });
     socketRef.current = newSocket;
 
     newSocket.on('connect', () => {
       console.log('WebSocket connected:', newSocket.id);
-      setError(null); 
-    });
+      setError(null);
 
+      newSocket.emit('messageToServer', { message: 'Hello from client' });
+  
+
+      // Add listener for the test event
+      newSocket.on('testEvent', (data: { message: string }) => {
+        console.log('*** Received testEvent from server ***:', data);
+      });
+
+      newSocket.on('jobUpdate', (updatedJob: Job) => {
+        console.log('Raw jobUpdate event received:', updatedJob);
+
+        setJobs(currentJobs => {
+          const finalUpdatedJob: Job = {
+              ...updatedJob,
+              createdAt: new Date(updatedJob.createdAt).toISOString(),
+              updatedAt: new Date(updatedJob.updatedAt).toISOString(),
+          };
+          const index = currentJobs.findIndex(job => job.jobId === finalUpdatedJob.jobId);
+          if (index !== -1) {
+            return currentJobs.map(job =>
+              job.jobId === finalUpdatedJob.jobId ? finalUpdatedJob : job
+            );
+          } else {
+            return [finalUpdatedJob, ...currentJobs].sort((a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+          }
+        });
+      });
+     
+    });
 
     newSocket.on('disconnect', (reason: string) => {
-      console.log('WebSocket disconnected:', reason);
+      console.error('*** WebSocket Disconnected *** Reason:', reason);
+      setError('WebSocket disconnected. Attempting to reconnect...');
     });
 
-    newSocket.on('connect_error', (err: Error) => {
-        console.error('WebSocket connection error:', err.message);
-        setError('WebSocket connection failed. Real-time updates may not work.');
-    });
-
-
-    newSocket.on('jobUpdate', (updatedJob: Job) => {
-      console.log('Received jobUpdate event:', updatedJob);
-      setJobs(currentJobs => {
-        console.log('Received jobUpdate event:', updatedJob.jobId);
-
-
-        const finalUpdatedJob: Job = {
-            ...updatedJob,
-            createdAt: new Date(updatedJob.createdAt).toISOString(),
-            updatedAt: new Date(updatedJob.updatedAt).toISOString(),
-        };
-
-        const index = currentJobs.findIndex(job => job.jobId === finalUpdatedJob.jobId);
-
-        if (index !== -1) {
-          console.log(`Updating existing job ${finalUpdatedJob.jobId} in state.`);
-          return currentJobs.map(job =>
-            job.jobId === finalUpdatedJob.jobId ? finalUpdatedJob : job
-          );
-        } else {
-          console.log(`Adding new job ${finalUpdatedJob.jobId} from WebSocket to state.`);
-          return [finalUpdatedJob, ...currentJobs].sort((a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-        }
+    newSocket.on('connect_error', (err: { message: any; description: any; stack: any; }) => {
+      console.error('Socket.IO connection error details:', {
+        message: err.message,
+        description: err.description,
+        stack: err.stack
       });
     });
-
 
     return () => {
       const socket = socketRef.current;
       if (socket) {
         console.log('Cleaning up WebSocket connection:', socket.id);
-        
+
+        socket.off('testEvent'); // Remove test listener on cleanup
+        socket.off('jobUpdate');
         socket.off('connect');
         socket.off('disconnect');
         socket.off('connect_error');
-        socket.off('jobUpdate');
         socket.disconnect();
       }
       socketRef.current = null;
     };
   }, [fetchJobs]);
-
-
+  
   return (
     <div className="App">
       <h1>Real-Time Regex Validator</h1>
