@@ -6,7 +6,7 @@ import { AppService } from './app.service';
 import configuration from './config/configuration';
 import { JobsModule } from './jobs/jobs.module';
 import { KafkaModule } from './kafka/kafka.module';
-import { EventsModule } from './events/events.module';
+import { SseModule } from './sse/sse.module'; 
 
 @Module({
   imports: [
@@ -27,7 +27,7 @@ import { EventsModule } from './events/events.module';
     }),
     JobsModule,
     KafkaModule,
-    EventsModule,
+    SseModule,
   ],
   controllers: [AppController],
   providers: [AppService, Logger],

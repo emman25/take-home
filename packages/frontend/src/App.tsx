@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Removed useRef
 import axios from 'axios';
-import io from 'socket.io-client';
 
 
 import { Job } from './types';
@@ -8,14 +7,15 @@ import './App.css';
 
 
 const API_BASE_URL = '/api';
-const WEBSOCKET_URL = '/';
+
+const SSE_URL = '/api/sse/events'; 
 
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inputString, setInputString] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<any | null>(null);
+
 
 
   const fetchJobs = useCallback(async () => {
@@ -46,19 +46,9 @@ function App() {
     setError(null);
     try {
       console.log('Submitting job with input:', inputString);
-      const response = await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
-      console.log('Job submitted successfully:', response.data);
-
-      const newJobOptimistic: Job = {
-        ...response.data,
-        createdAt: new Date(response.data.createdAt).toISOString(),
-        updatedAt: new Date(response.data.updatedAt).toISOString(),
-      };
-
-      setJobs(prevJobs => [newJobOptimistic, ...prevJobs].sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ));
-
+      
+      await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
+      console.log('Job submitted successfully via POST');
       setInputString('');
     } catch (err) {
       console.error('Error submitting job:', err);
@@ -69,86 +59,58 @@ function App() {
   };
 
 
+
   useEffect(() => {
     fetchJobs();
 
+    console.log(`Attempting to connect to SSE endpoint: ${SSE_URL}`);
+    const eventSource = new EventSource(SSE_URL);
 
-    console.log('Attempting to connect WebSocket...${}');
-    console.log(WEBSOCKET_URL)
-    const newSocket = io({
-      path: '/socket.io/',
-  transports: ['websocket', 'polling'],
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-    });
-    socketRef.current = newSocket;
+    eventSource.onopen = () => {
+      console.log('SSE connection established.');
+      setError(null); 
+    };
 
-    newSocket.on('connect', () => {
-      console.log('WebSocket connected:', newSocket.id);
-      setError(null);
+    eventSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+      setError('Connection error with real-time updates.');
 
-      newSocket.emit('messageToServer', { message: 'Hello from client' });
-  
+      eventSource.close();
+    };
 
-      // Add listener for the test event
-      newSocket.on('testEvent', (data: { message: string }) => {
-        console.log('*** Received testEvent from server ***:', data);
-      });
-
-      newSocket.on('jobUpdate', (updatedJob: Job) => {
-        console.log('Raw jobUpdate event received:', updatedJob);
+    
+    eventSource.addEventListener('jobUpdate', (event) => {
+      console.log('Raw jobUpdate event received via SSE:', event.data);
+      try {
+        const updatedJob: Job = JSON.parse(event.data);
 
         setJobs(currentJobs => {
-          const finalUpdatedJob: Job = {
-              ...updatedJob,
-              createdAt: new Date(updatedJob.createdAt).toISOString(),
-              updatedAt: new Date(updatedJob.updatedAt).toISOString(),
-          };
-          const index = currentJobs.findIndex(job => job.jobId === finalUpdatedJob.jobId);
+          const index = currentJobs.findIndex(job => job.jobId === updatedJob.jobId);
           if (index !== -1) {
+            // Update existing job
             return currentJobs.map(job =>
-              job.jobId === finalUpdatedJob.jobId ? finalUpdatedJob : job
+              job.jobId === updatedJob.jobId ? updatedJob : job
             );
           } else {
-            return [finalUpdatedJob, ...currentJobs].sort((a, b) =>
+            // Add new job and sort
+            return [updatedJob, ...currentJobs].sort((a, b) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
           }
         });
-      });
-     
-    });
-
-    newSocket.on('disconnect', (reason: string) => {
-      console.error('*** WebSocket Disconnected *** Reason:', reason);
-      setError('WebSocket disconnected. Attempting to reconnect...');
-    });
-
-    newSocket.on('connect_error', (err: { message: any; description: any; stack: any; }) => {
-      console.error('Socket.IO connection error details:', {
-        message: err.message,
-        description: err.description,
-        stack: err.stack
-      });
-    });
-
-    return () => {
-      const socket = socketRef.current;
-      if (socket) {
-        console.log('Cleaning up WebSocket connection:', socket.id);
-
-        socket.off('testEvent'); // Remove test listener on cleanup
-        socket.off('jobUpdate');
-        socket.off('connect');
-        socket.off('disconnect');
-        socket.off('connect_error');
-        socket.disconnect();
+      } catch (parseError) {
+        console.error('Failed to parse SSE jobUpdate data:', parseError);
       }
-      socketRef.current = null;
+    });
+
+    
+    return () => {
+      console.log('Closing SSE connection...');
+      eventSource.close();
     };
-  }, [fetchJobs]);
-  
+  }, [fetchJobs]); // Depend on fetchJobs
+
+
   return (
     <div className="App">
       <h1>Real-Time Regex Validator</h1>
@@ -193,7 +155,6 @@ function App() {
                 <td>{job.inputString}</td>
                 <td>{job.regexPattern}</td>
                 <td className={`status-${job.status.toLowerCase()}`}>{job.status}</td>
-                {/* Add check for valid date before formatting */}
                 <td>{job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}</td>
                 <td>{job.updatedAt ? new Date(job.updatedAt).toLocaleString() : 'N/A'}</td>
               </tr>

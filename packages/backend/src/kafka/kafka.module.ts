@@ -4,13 +4,11 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { KafkaConsumerService } from './kafka-consumer.service';
 import { KafkaController } from './kafka.controller';
 import { JobsModule } from '../jobs/jobs.module';
-import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
     ConfigModule,
     JobsModule,
-    EventsModule,
 
 
 
