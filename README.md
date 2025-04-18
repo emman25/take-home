@@ -11,6 +11,7 @@ The system is designed as a distributed application orchestrated using Docker Co
 1.  **Frontend (React/Vite):**
     *   Provides the user interface for submitting strings and viewing the job history.
     *   Built with React (using TypeScript and Vite).
+    *   Uses **Zustand** for state management.
     *   Communicates with the backend via HTTP REST API for submitting jobs and fetching initial history.
     *   Establishes a Server-Sent Events (SSE) connection to receive real-time status updates for jobs using the browser's `EventSource` API.
     *   Served by an Nginx container, which also acts as a reverse proxy for the backend API (including the SSE endpoint).
