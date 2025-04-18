@@ -2,7 +2,7 @@
 
 ## Objective
 
-This project implements a real-time web application where users submit text strings that are validated against a configurable regular expression on the backend. Each submission is processed asynchronously, and users see live status updates ("Validating", "Valid", or "Invalid") via WebSockets.
+This project implements a real-time web application where users submit text strings that are validated against a configurable regular expression on the backend. Each submission is processed asynchronously, and users see live status updates ("Validating", "Valid", or "Invalid") via Server-Sent Events (SSE).
 
 ## Architecture Overview
 
@@ -12,22 +12,22 @@ The system is designed as a distributed application orchestrated using Docker Co
     *   Provides the user interface for submitting strings and viewing the job history.
     *   Built with React (using TypeScript and Vite).
     *   Communicates with the backend via HTTP REST API for submitting jobs and fetching initial history.
-    *   Establishes a WebSocket connection to receive real-time status updates for jobs.
-    *   Served by an Nginx container, which also acts as a reverse proxy for the backend API and WebSocket connections.
+    *   Establishes a Server-Sent Events (SSE) connection to receive real-time status updates for jobs using the browser's `EventSource` API.
+    *   Served by an Nginx container, which also acts as a reverse proxy for the backend API (including the SSE endpoint).
 
 2.  **Backend (NestJS):**
-    *   Exposes a REST API (`/jobs`) for creating new validation jobs and retrieving job history.
+    *   Exposes a REST API (`/api/jobs`) for creating new validation jobs and retrieving job history.
+    *   Exposes a Server-Sent Events (SSE) endpoint (`/api/sse/events`) for streaming real-time updates.
     *   Handles incoming job requests, saves initial job data to MongoDB with "Validating" status.
     *   Publishes the job details to a Kafka topic (`job.submitted`) for asynchronous processing.
     *   Listens to another Kafka topic (`job.updated`) for results from the validation process.
-    *   Includes a WebSocket Gateway (`EventsGateway`) to manage client connections.
-    *   When a `job.updated` message is received from Kafka, the gateway broadcasts the updated job status to all connected frontend clients.
+    *   Uses Redis Pub/Sub to decouple the Kafka listener (`KafkaController`) from the SSE connection handler (`SseController`). When a `job.updated` message is received from Kafka, the `KafkaController` publishes it to a Redis channel. The `SseController` subscribes to this channel and pushes updates to connected SSE clients.
 
 3.  **Kafka (Confluent Platform):**
     *   Acts as a message broker for decoupling the initial job submission from the asynchronous validation process.
     *   Uses two topics:
         *   `job.submitted`: Backend API publishes new jobs here. The Kafka Consumer service listens to this.
-        *   `job.updated`: The Kafka Consumer service publishes validation results here. The Backend's Kafka Controller listens to this to trigger WebSocket broadcasts.
+        *   `job.updated`: The Kafka Consumer service publishes validation results here. The Backend's Kafka Controller listens to this to trigger Redis publication.
 
 4.  **Kafka Consumer (Integrated within Backend):**
     *   A NestJS microservice listener running within the main backend application process.
@@ -41,7 +41,7 @@ The system is designed as a distributed application orchestrated using Docker Co
     *   The primary database for persisting job information (ID, input string, regex pattern, status, timestamps).
 
 6.  **Redis:**
-    *   Included in the stack as per requirements. While not strictly necessary for broadcasting in this single-instance backend setup (NestJS WebSocket gateway handles broadcasting), it's configured and available. For scaling the backend service to multiple instances, the `socket.io-redis` adapter would be configured in `EventsGateway` to enable broadcasting across all instances via Redis Pub/Sub.
+    *   Used as a Pub/Sub message broker to pass job update events from the Kafka consumer context (`KafkaController`) to the HTTP context (`SseController`) handling SSE connections.
 
 7.  **Docker Compose:**
     *   Orchestrates all the services (frontend, backend, kafka, zookeeper, mongodb, redis).
@@ -56,7 +56,7 @@ The system is designed as a distributed application orchestrated using Docker Co
     *   Receives the request.
     *   Creates a job record in MongoDB with status "Validating".
     *   Sends the job details (ID, input, pattern, delay) to the `job.submitted` Kafka topic.
-    *   Returns the initial job data (with "Validating" status) to the frontend.
+    *   Returns the initial job data (with "Validating" status) to the frontend (used for optimistic UI update).
 4.  **Kafka Consumer:**
     *   Picks up the message from `job.submitted`.
     *   Waits for the configured delay.
@@ -65,24 +65,24 @@ The system is designed as a distributed application orchestrated using Docker Co
     *   Sends the complete, updated job data to the `job.updated` Kafka topic.
 5.  **Backend Kafka Listener:**
     *   The `@EventPattern('job.updated')` in `KafkaController` receives the message.
-    *   It calls the `EventsGateway`.
-6.  **WebSocket Broadcast:**
-    *   `EventsGateway` uses `server.emit('jobUpdate', updatedJob)` to broadcast the updated job data to all connected frontend clients.
+    *   It publishes the job update data to a Redis Pub/Sub channel (e.g., `job-updates`).
+6.  **Backend SSE Controller:**
+    *   The `SseController` is subscribed to the Redis `job-updates` channel.
+    *   Upon receiving a message from Redis, it pushes the job update data down the persistent HTTP connection to all connected SSE clients.
 7.  **Frontend Update:**
-    *   The React app's WebSocket listener (`socket.on('jobUpdate', ...)`) receives the data.
+    *   The React app's `EventSource` listener receives the `jobUpdate` event.
     *   The component updates its state, causing the UI (specifically the job list) to re-render with the new status.
 
 ## System Reliability & Fault Tolerance
 
-*   **Decoupling:** Kafka decouples the API from the validation logic. If the validation process fails temporarily, jobs remain queued in Kafka for later processing (depending on Kafka configuration).
-*   **Persistence:** MongoDB ensures job data is persisted even if services restart.
-*   **Asynchronicity:** The system handles validation asynchronously, preventing the API from being blocked by long validation times.
-*   **Containerization:** Docker ensures consistent environments and simplifies deployment. Docker Compose health checks could be added for more robust startup sequences.
-*   **Error Handling:** Basic error handling and logging are implemented in the backend services. More sophisticated strategies (dead-letter queues in Kafka, retry mechanisms) could be added for production.
+*   **Decoupling:** Kafka decouples the API from the validation logic. Redis decouples the Kafka consumer from the SSE connection handler.
+*   **Persistence:** MongoDB ensures job data is persisted.
+*   **Asynchronicity:** The system handles validation asynchronously.
+*   **Containerization:** Docker ensures consistent environments.
+*   **Error Handling:** Basic error handling and logging are implemented.
 *   **Scalability:**
-    *   The backend service can be scaled horizontally. Using the `socket.io-redis` adapter is crucial for WebSocket state synchronization across multiple backend instances.
-    *   Kafka can be scaled by adding more brokers and partitions.
-    *   MongoDB and Redis can be configured as clusters for high availability and scalability.
+    *   The backend service can be scaled horizontally. Redis Pub/Sub handles message distribution between the Kafka consumer part and the SSE part, regardless of which instance handles which connection.
+    *   Kafka, MongoDB, and Redis can be scaled independently or replaced with managed services.
 
 ## Cloud Deployment & Scaling (AWS)
 
@@ -110,10 +110,10 @@ The system is designed as a distributed application orchestrated using Docker Co
 3.  Navigate to the project root directory (where `docker-compose.yml` is located).
 4.  Run the command:
     ```bash
-    docker compose up --build
+    docker compose up --build -d
     ```
-5.  Wait for all containers to build and start. This might take a few minutes on the first run. Look for logs indicating successful connections (Kafka, MongoDB, Redis) and the backend/frontend servers starting.
-6.  Open your web browser and navigate to: `http://localhost:61234`
+5.  Wait for all containers to build and start. Check logs (`docker compose logs -f backend`) for successful connections (Kafka, MongoDB, Redis) and server startup.
+6.  Open your web browser and navigate to: `http://localhost:61234` (or the port mapped in `docker-compose.yml`).
 7.  The Real-Time Regex Validator application should be visible. Submit strings and observe the status updates in the job history table.
 
 ## Environment Variables (Configurable in `docker-compose.yml`)

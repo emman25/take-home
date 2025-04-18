@@ -46,9 +46,21 @@ function App() {
     setError(null);
     try {
       console.log('Submitting job with input:', inputString);
-      
-      await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
-      console.log('Job submitted successfully via POST');
+     
+      const response = await axios.post<Job>(`${API_BASE_URL}/jobs`, { inputString });
+      console.log('Job submitted successfully via POST:', response.data);
+
+    
+      const newJobOptimistic: Job = {
+        ...response.data,
+
+        createdAt: new Date(response.data.createdAt).toISOString(),
+        updatedAt: new Date(response.data.updatedAt).toISOString(),
+      };
+      setJobs(prevJobs => [newJobOptimistic, ...prevJobs].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ));
+
       setInputString('');
     } catch (err) {
       console.error('Error submitting job:', err);
